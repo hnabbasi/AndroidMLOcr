@@ -4,34 +4,26 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.opengl.Visibility
 import android.os.Bundle
 import android.util.Log
-import android.util.Size
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.core.view.isVisible
-import com.google.android.gms.tasks.OnFailureListener
-import com.google.android.gms.tasks.OnSuccessListener
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.Text
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
+import java.lang.StringBuilder
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-
-
-typealias LumaListener = (luma: Double) -> Unit
 
 class MainActivity : AppCompatActivity() {
     private var preview: Preview? = null
@@ -47,9 +39,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         results = findViewById(R.id.results)
-//        viewFinder = findViewById(R.id.viewFinder);
 
-        // Request camera permissions
         if (allPermissionsGranted()) {
             startCamera()
         } else {
@@ -57,42 +47,36 @@ class MainActivity : AppCompatActivity() {
                     this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
         }
 
-        // Setup the listener for take photo button
         camera_capture_button.setOnClickListener { takePhoto() }
-
         outputDirectory = getOutputDirectory()
-
         cameraExecutor = Executors.newSingleThreadExecutor()
     }
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
         cameraProviderFuture.addListener(Runnable {
-            // Used to bind the lifecycle of cameras to the lifecycle owner
             val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
 
-            // Preview
             preview = Preview.Builder().build()
 
             imageCapture = ImageCapture.Builder()
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                     .build()
-//
+
             imageAnalyzer = ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
                     .also {
-                        it.setAnalyzer(cameraExecutor, OcrAnalyzer())
+                        it.setAnalyzer(cameraExecutor, ImageAnalysis.Analyzer {image ->
+                            Log.i(TAG, "Image rotation degrees: ${image.imageInfo.rotationDegrees}")
+                        })
                     }
 
-            // Select back camera
             val cameraSelector = CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK).build()
 
             try {
-                // Unbind use cases before rebinding
                 cameraProvider.unbindAll()
 
-                // Bind use cases to camera
                 camera = cameraProvider.bindToLifecycle(
                         this, cameraSelector, preview, imageCapture, imageAnalyzer)
                 preview?.setSurfaceProvider(viewFinder.createSurfaceProvider(camera?.cameraInfo))
@@ -137,25 +121,23 @@ class MainActivity : AppCompatActivity() {
     }
     private fun processTextRecognitionResult(texts: Text) {
         Log.d(TAG, "Processing...")
-        val blocks: List<Text.TextBlock> = texts.getTextBlocks()
-        if (blocks.size === 0) {
+        val blocks: List<Text.TextBlock> = texts.textBlocks
+        if (blocks.isEmpty()) {
             Log.d(TAG, "No text found")
             return
         }
-        var result = ""
-        for (i in 0 until blocks.size) {
-            val lines: List<Text.Line> = blocks[i].getLines()
-            for (j in 0 until lines.size) {
-                val elements: List<Text.Element> = lines[j].getElements()
-                for (k in 0 until elements.size) {
-                    Log.d(TAG,"Text found: ${elements[k]}")
-                    result += elements[k].text + ", "
-//                    val textGraphic: Graphic = TextGraphic(mGraphicOverlay, elements[k])
-//                    mGraphicOverlay.add(textGraphic)
+        val result = StringBuilder()
+        for (element in blocks) {
+            val lines: List<Text.Line> = element.lines
+            for (element in lines) {
+                val elements: List<Text.Element> = element.elements
+                for (k in elements.indices) {
+                    result.append(elements[k].text)
+                    result.append(", ")
                 }
             }
         }
-        results?.text = result
+        results?.text = result.toString()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
@@ -174,7 +156,7 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.checkSelfPermission(baseContext, it) == PackageManager.PERMISSION_GRANTED
     }
 
-    fun getOutputDirectory(): File {
+    private fun getOutputDirectory(): File {
         val mediaDir = externalMediaDirs.firstOrNull()?.let {
             File(it, resources.getString(R.string.app_name)).apply { mkdirs() } }
         return if (mediaDir != null && mediaDir.exists())
@@ -186,18 +168,5 @@ class MainActivity : AppCompatActivity() {
         private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
         private const val REQUEST_CODE_PERMISSIONS = 10
         private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
-    }
-
-    private class OcrAnalyzer : ImageAnalysis.Analyzer {
-
-        @SuppressLint("UnsafeExperimentalUsageError")
-        override fun analyze(image: ImageProxy) {
-            val mediaImage = image.image
-            if (mediaImage != null) {
-//                val image = InputImage.fromMediaImage(mediaImage, image.imageInfo.rotationDegrees)
-//                runTextRecognition(image);
-            }
-            image.close()
-        }
     }
 }
